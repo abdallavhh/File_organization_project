@@ -15,40 +15,48 @@ def main(page: ft.Page):
     # Global state
     current_file = None
     
-    # --- UI Components ---
+    # --- UI Components (Global to Main) ---
     
     def toggle_theme(e):
         page.theme_mode = ft.ThemeMode.DARK if page.theme_mode == ft.ThemeMode.LIGHT else ft.ThemeMode.LIGHT
         e.control.icon = "dark_mode" if page.theme_mode == ft.ThemeMode.LIGHT else "light_mode"
         page.update()
+    
+    # State controls
+    file_name_input = ft.TextField(label="File Name", value="students.txt", width=400, border="underline", filled=True)
+    file_type_dropdown = ft.Dropdown(
+        label="File Type",
+        width=400,
+        options=[
+            ft.dropdown.Option(FileManager.TYPE_FIXED),
+            ft.dropdown.Option(FileManager.TYPE_DELIMITED),
+        ],
+        value=FileManager.TYPE_FIXED,
+        border="underline", filled=True
+    )
+    active_file_text = ft.Text(f"Active File: {current_file if current_file else 'No file selected'}", size=16, weight=ft.FontWeight.BOLD)
 
-    # File Picker
+    def update_active_file_text():
+        active_file_text.value = f"Active File: {current_file if current_file else 'No file selected'}"
+        active_file_text.update()
+
+    # File Pickers
     def pick_files_result(e: ft.FilePickerResultEvent):
         if e.files:
             selected_file = e.files[0].path
-            # We need to update the input field in the active page
-            # Since we are inside main, we can't easily access the local variable 'file_name_input' of get_home_page
-            # unless we make it accessible or trigger a refresh.
-            # A simple way is to update the global current_file and refresh the home page.
             nonlocal current_file
             current_file = selected_file
             
-            # If we are on the home page, we might want to update the text field too.
-            # But 'file_name_input' is local to 'get_home_page'.
-            # We can just reload the home page or use a global reference if we refactor.
-            # For now, let's just update the current_file and show a snackbar, 
-            # and if the user is on the home page, they will see the updated active file text.
+            # Update input to match selected file
+            file_name_input.value = selected_file
+            file_name_input.update()
             
-            # Actually, better UX: The user picks a file to *Load*.
-            # So let's treat it like a Load operation.
             try:
                 meta = FileManager.get_file_metadata(current_file)
                 page.snack_bar = ft.SnackBar(ft.Text(f"Selected '{current_file}'. Type: {meta.get('TYPE')}"), bgcolor="blue")
                 page.snack_bar.open = True
-                
-                # Force refresh of the current page to show updated values
-                navigate(rail.selected_index)
-                
+                update_active_file_text()
+                page.update()
             except Exception as ex:
                 page.snack_bar = ft.SnackBar(ft.Text(f"Error loading file: {str(ex)}"), bgcolor="red")
                 page.snack_bar.open = True
@@ -56,6 +64,164 @@ def main(page: ft.Page):
 
     pick_files_dialog = ft.FilePicker(on_result=pick_files_result)
     page.overlay.append(pick_files_dialog)
+
+    def csv_picker_result(e: ft.FilePickerResultEvent):
+        if e.files:
+            csv_path = e.files[0].path
+            target_file = file_name_input.value
+            target_type = file_type_dropdown.value
+            try:
+                FileManager.import_from_csv(csv_path, target_file, target_type)
+                page.snack_bar = ft.SnackBar(ft.Text(f"Imported from '{csv_path}' to '{target_file}'"), bgcolor="green")
+                page.snack_bar.open = True
+                nonlocal current_file
+                current_file = target_file
+                update_active_file_text()
+                page.update()
+            except Exception as ex:
+                page.snack_bar = ft.SnackBar(ft.Text(f"Import Error: {str(ex)}"), bgcolor="red")
+                page.snack_bar.open = True
+                page.update()
+
+    csv_import_dialog = ft.FilePicker(on_result=csv_picker_result)
+    page.overlay.append(csv_import_dialog)
+
+    def on_gz_picked(e: ft.FilePickerResultEvent):
+        if e.files:
+            gz_path = e.files[0].path
+            try:
+                decomp_file = FileManager.decompress_file(gz_path)
+                page.snack_bar = ft.SnackBar(ft.Text(f"Decompressed to '{decomp_file}'"), bgcolor="green")
+                page.snack_bar.open = True
+                nonlocal current_file
+                current_file = decomp_file
+                update_active_file_text()
+                page.update()
+            except Exception as ex:
+                page.snack_bar = ft.SnackBar(ft.Text(f"Error: {str(ex)}"), bgcolor="red")
+                page.snack_bar.open = True
+                page.update()
+    
+    gz_picker = ft.FilePicker(on_result=on_gz_picked)
+    page.overlay.append(gz_picker)
+
+    def on_file_to_compress_picked(e: ft.FilePickerResultEvent):
+        if e.files:
+            file_path = e.files[0].path
+            try:
+                comp_file = FileManager.compress_file(file_path)
+                page.snack_bar = ft.SnackBar(ft.Text(f"Compressed to '{comp_file}'"), bgcolor="green")
+                page.snack_bar.open = True
+                page.update()
+            except Exception as ex:
+                page.snack_bar = ft.SnackBar(ft.Text(f"Error: {str(ex)}"), bgcolor="red")
+                page.snack_bar.open = True
+                page.update()
+
+    compress_picker = ft.FilePicker(on_result=on_file_to_compress_picked)
+    page.overlay.append(compress_picker)
+
+    # Actions
+    def create_file_click(e):
+        try:
+            FileManager.create_file(file_name_input.value, file_type_dropdown.value)
+            page.snack_bar = ft.SnackBar(ft.Text(f"File '{file_name_input.value}' created successfully!"), bgcolor="green")
+            page.snack_bar.open = True
+            nonlocal current_file
+            current_file = file_name_input.value
+            update_active_file_text()
+            page.update()
+        except Exception as ex:
+            page.snack_bar = ft.SnackBar(ft.Text(f"Error: {str(ex)}"), bgcolor="red")
+            page.snack_bar.open = True
+            page.update()
+
+    def load_file_click(e):
+        if os.path.exists(file_name_input.value):
+            nonlocal current_file
+            current_file = file_name_input.value
+            
+            # Check if it's a GZ file
+            if current_file.endswith('.gz'):
+                 page.snack_bar = ft.SnackBar(ft.Text(f"Selected compressed file '{current_file}'. Please decompress it first."), bgcolor="orange")
+                 page.snack_bar.open = True
+                 update_active_file_text()
+                 page.update()
+                 return
+
+            try:
+                meta = FileManager.get_file_metadata(current_file)
+                page.snack_bar = ft.SnackBar(ft.Text(f"Loaded '{current_file}'. Type: {meta.get('TYPE')}"), bgcolor="blue")
+                page.snack_bar.open = True
+                update_active_file_text()
+                page.update()
+            except Exception as ex:
+                page.snack_bar = ft.SnackBar(ft.Text(f"Error loading file: {str(ex)}"), bgcolor="red")
+                page.snack_bar.open = True
+                page.update()
+        else:
+            page.snack_bar = ft.SnackBar(ft.Text("File not found!"), bgcolor="red")
+            page.snack_bar.open = True
+            page.update()
+
+    def convert_click(e):
+        nonlocal current_file
+        if not current_file:
+            page.snack_bar = ft.SnackBar(ft.Text("No active file to convert!"), bgcolor="red")
+            page.snack_bar.open = True
+            page.update()
+            return
+            
+        try:
+            # Toggle type
+            meta = FileManager.get_file_metadata(current_file)
+            current_type = meta.get('TYPE')
+            new_type = FileManager.TYPE_DELIMITED if current_type == FileManager.TYPE_FIXED else FileManager.TYPE_FIXED
+            
+            new_file = FileManager.convert_file_structure(current_file, new_type)
+            
+            page.snack_bar = ft.SnackBar(ft.Text(f"Converted to '{new_file}' ({new_type})"), bgcolor="green")
+            page.snack_bar.open = True
+            current_file = new_file
+            update_active_file_text()
+            page.update()
+        except Exception as ex:
+            page.snack_bar = ft.SnackBar(ft.Text(f"Conversion Error: {str(ex)}"), bgcolor="red")
+            page.snack_bar.open = True
+            page.update()
+
+    def compress_click(e):
+        if not current_file:
+            # Allow picking a file to compress
+            compress_picker.pick_files(allow_multiple=False)
+            return
+            
+        try:
+            comp_file = FileManager.compress_file(current_file)
+            page.snack_bar = ft.SnackBar(ft.Text(f"Compressed to '{comp_file}'"), bgcolor="green")
+            page.snack_bar.open = True
+            page.update()
+        except Exception as ex:
+            page.snack_bar = ft.SnackBar(ft.Text(f"Error: {str(ex)}"), bgcolor="red")
+            page.snack_bar.open = True
+            page.update()
+
+    def decompress_click(e):
+         nonlocal current_file
+         if current_file and current_file.endswith('.gz'):
+             try:
+                 decomp_file = FileManager.decompress_file(current_file)
+                 page.snack_bar = ft.SnackBar(ft.Text(f"Decompressed to '{decomp_file}'"), bgcolor="green")
+                 page.snack_bar.open = True
+                 current_file = decomp_file
+                 update_active_file_text()
+                 page.update()
+             except Exception as ex:
+                 page.snack_bar = ft.SnackBar(ft.Text(f"Error: {str(ex)}"), bgcolor="red")
+                 page.snack_bar.open = True
+                 page.update()
+         else:
+             gz_picker.pick_files(allow_multiple=False, allowed_extensions=["gz"])
 
     # Navigation Rail
     rail = ft.NavigationRail(
@@ -87,60 +253,6 @@ def main(page: ft.Page):
     # --- Pages ---
 
     def get_home_page():
-        
-        # If current_file is set, use it as default value, else default to students.txt
-        default_val = current_file if current_file else "students.txt"
-        file_name_input = ft.TextField(label="File Name", value=default_val, width=400, border="underline", filled=True)
-        file_type_dropdown = ft.Dropdown(
-            label="File Type",
-            width=400,
-            options=[
-                ft.dropdown.Option(FileManager.TYPE_FIXED),
-                ft.dropdown.Option(FileManager.TYPE_DELIMITED),
-            ],
-            value=FileManager.TYPE_FIXED,
-            border="underline", filled=True
-        )
-        
-        active_file_text = ft.Text(f"Active File: {current_file if current_file else 'No file selected'}", size=16, weight=ft.FontWeight.BOLD)
-
-        def update_active_file_text():
-            active_file_text.value = f"Active File: {current_file if current_file else 'No file selected'}"
-            active_file_text.update()
-
-        def create_file_click(e):
-            try:
-                FileManager.create_file(file_name_input.value, file_type_dropdown.value)
-                page.snack_bar = ft.SnackBar(ft.Text(f"File '{file_name_input.value}' created successfully!"), bgcolor="green")
-                page.snack_bar.open = True
-                nonlocal current_file
-                current_file = file_name_input.value
-                update_active_file_text()
-                page.update()
-            except Exception as ex:
-                page.snack_bar = ft.SnackBar(ft.Text(f"Error: {str(ex)}"), bgcolor="red")
-                page.snack_bar.open = True
-                page.update()
-
-        def load_file_click(e):
-            if os.path.exists(file_name_input.value):
-                nonlocal current_file
-                current_file = file_name_input.value
-                try:
-                    meta = FileManager.get_file_metadata(current_file)
-                    page.snack_bar = ft.SnackBar(ft.Text(f"Loaded '{current_file}'. Type: {meta.get('TYPE')}"), bgcolor="blue")
-                    page.snack_bar.open = True
-                    update_active_file_text()
-                    page.update()
-                except Exception as ex:
-                    page.snack_bar = ft.SnackBar(ft.Text(f"Error loading file: {str(ex)}"), bgcolor="red")
-                    page.snack_bar.open = True
-                    page.update()
-            else:
-                page.snack_bar = ft.SnackBar(ft.Text("File not found!"), bgcolor="red")
-                page.snack_bar.open = True
-                page.update()
-
         return ft.Container(
             padding=40,
             content=ft.Column(
@@ -165,6 +277,16 @@ def main(page: ft.Page):
                                     ft.FilledButton("Create File", on_click=create_file_click, icon="create", width=190),
                                     ft.OutlinedButton("Load File", on_click=load_file_click, icon="file_open", width=190),
                                 ], alignment=ft.MainAxisAlignment.START),
+                                ft.Divider(),
+                                ft.Text("Advanced Operations", size=16, weight=ft.FontWeight.W_600),
+                                ft.Row([
+                                    ft.ElevatedButton("Import CSV", on_click=lambda _: csv_import_dialog.pick_files(allow_multiple=False, allowed_extensions=["csv"]), icon="upload_file"),
+                                    ft.ElevatedButton("Convert Structure", on_click=convert_click, icon="transform"),
+                                ]),
+                                ft.Row([
+                                    ft.ElevatedButton("Compress File", on_click=compress_click, icon="compress"),
+                                    ft.ElevatedButton("Decompress File", on_click=decompress_click, icon="expand"),
+                                ])
                             ], spacing=20)
                         )
                     ),

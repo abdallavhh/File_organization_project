@@ -27,9 +27,9 @@ class FileManager:
         if file_type == FileManager.TYPE_FIXED:
             # For fixed, we might store field lengths in header, but for this assignment
             # we know them from Student class. We'll store basic metadata.
-            header = f"{FileManager.HEADER_PREFIX}TYPE={file_type},DATE={date_str}"
+            header = f"{FileManager.HEADER_PREFIX}TYPE={file_type},DATE={date_str},FIELDS=ID|Name|GPA|Dept"
         else:
-            header = f"{FileManager.HEADER_PREFIX}TYPE={file_type},DELIMITER={delimiter},DATE={date_str}"
+            header = f"{FileManager.HEADER_PREFIX}TYPE={file_type},DELIMITER={delimiter},DATE={date_str},FIELDS=ID|Name|GPA|Dept"
             
         with open(filename, 'w', encoding='utf-8') as f:
             f.write(header + "\n")
@@ -195,10 +195,10 @@ class FileManager:
         date_str = metadata.get('DATE')
         
         if file_type == FileManager.TYPE_FIXED:
-            return f"{FileManager.HEADER_PREFIX}TYPE={file_type},DATE={date_str}"
+            return f"{FileManager.HEADER_PREFIX}TYPE={file_type},DATE={date_str},FIELDS=ID|Name|GPA|Dept"
         else:
             delimiter = metadata.get('DELIMITER', '|')
-            return f"{FileManager.HEADER_PREFIX}TYPE={file_type},DELIMITER={delimiter},DATE={date_str}"
+            return f"{FileManager.HEADER_PREFIX}TYPE={file_type},DELIMITER={delimiter},DATE={date_str},FIELDS=ID|Name|GPA|Dept"
 
     @staticmethod
     def delete_student(filename: str, student_id: int):
@@ -300,4 +300,95 @@ class FileManager:
             
         df = pd.DataFrame(data)
         df.to_excel(output_path, index=False)
+
+    @staticmethod
+    def import_from_csv(csv_path: str, target_filename: str, target_type: str):
+        """
+        Imports students from a CSV file into a new data file.
+        """
+        import csv
+        
+        if os.path.exists(target_filename):
+            os.remove(target_filename)
+            
+        FileManager.create_file(target_filename, target_type)
+        
+        with open(csv_path, 'r', encoding='utf-8-sig') as f:
+            reader = csv.DictReader(f)
+            # Check if header exists and matches expected fields roughly
+            # We assume CSV has headers: ID, Name, GPA, Department (or Dept)
+            
+            for row in reader:
+                # Map CSV columns to Student fields
+                # Try to be flexible with column names
+                s_id = row.get('ID') or row.get('id')
+                s_name = row.get('Name') or row.get('name')
+                s_gpa = row.get('GPA') or row.get('gpa')
+                s_dept = row.get('Department') or row.get('Dept') or row.get('dept')
+                
+                if s_id and s_name:
+                    try:
+                        student = Student(int(s_id), s_name, float(s_gpa), s_dept)
+                        FileManager.add_student(target_filename, student)
+                    except ValueError:
+                        continue # Skip invalid rows
+
+    @staticmethod
+    def convert_file_structure(filename: str, new_type: str):
+        """
+        Converts the file to a different structure type (Fixed <-> Delimited).
+        Returns the new filename.
+        """
+        students = FileManager.read_all(filename)
+        
+        # Create new filename
+        base, ext = os.path.splitext(filename)
+        new_filename = f"{base}_converted{ext}"
+        
+        if os.path.exists(new_filename):
+            os.remove(new_filename)
+            
+        FileManager.create_file(new_filename, new_type)
+        
+        for s in students:
+            FileManager.add_student(new_filename, s)
+            
+        return new_filename
+
+    @staticmethod
+    def compress_file(filename: str):
+        """
+        Compresses the file using gzip.
+        Returns the compressed filename.
+        """
+        import gzip
+        import shutil
+        
+        compressed_filename = f"{filename}.gz"
+        
+        with open(filename, 'rb') as f_in:
+            with gzip.open(compressed_filename, 'wb') as f_out:
+                shutil.copyfileobj(f_in, f_out)
+                
+        return compressed_filename
+
+    @staticmethod
+    def decompress_file(filename: str):
+        """
+        Decompresses a gzip file.
+        Returns the decompressed filename (removes .gz).
+        """
+        import gzip
+        import shutil
+        
+        if not filename.endswith('.gz'):
+            raise ValueError("File must end with .gz")
+            
+        decompressed_filename = filename[:-3]
+        
+        with gzip.open(filename, 'rb') as f_in:
+            with open(decompressed_filename, 'wb') as f_out:
+                shutil.copyfileobj(f_in, f_out)
+                
+        return decompressed_filename
 

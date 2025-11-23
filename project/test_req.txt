@@ -1,0 +1,2 @@
+HEADER:TYPE=FIXED,DATE=2025-11-22 01:18:05,FIELDS=ID|Name|GPA|Dept
+00001Alice               3.50CS        
